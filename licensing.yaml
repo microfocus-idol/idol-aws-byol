@@ -1,0 +1,254 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: Amazon AWS EC2 template for Basic IDOL deployment (licensing)
+
+Parameters:
+  LicenseServerInstanceType:
+    Type: String
+    Description: 'AWS EC2 InstanceType for the LicenseServer instance'
+    Default: t2.micro
+    AllowedValues: [
+                    "t2.nano", "t2.micro", "t2.small", "t2.medium", "t2.large", "t2.xlarge", "t2.2xlarge",
+                    "t3.nano", "t3.micro", "t3.small", "t3.medium", "t3.large", "t3.xlarge", "t3.2xlarge",
+                    "t3a.nano", "t3a.micro", "t3a.small", "t3a.medium", "t3a.large", "t3a.xlarge", "t3a.2xlarge",
+                    "c4.large", "c4.xlarge", "c4.2xlarge", "c4.4xlarge", "c4.8xlarge",
+                    "c5.large", "c5.xlarge", "c5.2xlarge", "c5.4xlarge", "c5.9xlarge", "c5.12xlarge", "c5.18xlarge", "c5.24xlarge", "c5.metal",
+                    "c5a.large", "c5a.xlarge", "c5a.2xlarge", "c5a.4xlarge", "c5a.8xlarge", "c5a.12xlarge", "c5a.16xlarge", "c5a.24xlarge",
+                    "c5ad.large", "c5ad.xlarge", "c5ad.2xlarge", "c5ad.4xlarge", "c5ad.8xlarge", "c5ad.12xlarge", "c5ad.16xlarge", "c5ad.24xlarge",
+                    "c5d.large", "c5d.xlarge", "c5d.2xlarge", "c5d.4xlarge", "c5d.9xlarge", "c5d.12xlarge", "c5d.18xlarge", "c5d.24xlarge", "c5d.metal",
+                    "c5n.large", "c5n.xlarge", "c5n.2xlarge", "c5n.4xlarge", "c5n.9xlarge", "c5n.18xlarge", "c5n.metal",
+                    "d2.xlarge", "d2.2xlarge", "d2.4xlarge", "d2.8xlarge",
+                    "d3.xlarge", "d3.2xlarge", "d3.4xlarge", "d3.8xlarge",
+                    "d3en.xlarge", "d3en.2xlarge", "d3en.4xlarge", "d3en.6xlarge", "d3en.8xlarge", "d3en.12xlarge",
+                    "f1.2xlarge", "f1.4xlarge", "f1.16xlarge",
+                    "g3s.xlarge", "g3.4xlarge", "g3.8xlarge", "g3.16xlarge",
+                    "g4ad.4xlarge", "g4ad.8xlarge", "g4ad.16xlarge",
+                    "g4dn.xlarge", "g4dn.2xlarge", "g4dn.4xlarge", "g4dn.8xlarge", "g4dn.16xlarge", "g4dn.12xlarge", "g4dn.metal",
+                    "h1.2xlarge", "h1.4xlarge", "h1.8xlarge", "h1.16xlarge" ,
+                    "i3.large", "i3.xlarge", "i3.2xlarge", "i3.4xlarge", "i3.8xlarge", "i3.16xlarge", "i3.metal",
+                    "i3en.large", "i3en.xlarge", "i3en.2xlarge", "i3en.3xlarge", "i3en.6xlarge", "i3en.12xlarge", "i3en.24xlarge", "i3en.metal",
+                    "inf1.xlarge", "inf1.2xlarge", "inf1.6xlarge", "inf1.24xlarge",
+                    "m4.large", "m4.xlarge", "m4.2xlarge", "m4.4xlarge", "m4.10xlarge", "m4.16xlarge",
+                    "m5.large", "m5.xlarge", "m5.2xlarge", "m5.4xlarge", "m5.12xlarge", "m5.16xlarge", "m5.24xlarge", "m5.metal",
+                    "m5a.large", "m5a.xlarge", "m5a.2xlarge", "m5a.4xlarge", "m5a.12xlarge", "m5a.16xlarge", "m5a.24xlarge",
+                    "m5ad.large", "m5ad.xlarge", "m5ad.2xlarge", "m5ad.4xlarge", "m5ad.12xlarge", "m5ad.16xlarge", "m5ad.24xlarge",
+                    "m5d.large", "m5d.xlarge", "m5d.2xlarge", "m5d.4xlarge", "m5d.12xlarge", "m5d.16xlarge", "m5d.24xlarge", "m5d.metal",
+                    "m5dn.large", "m5dn.xlarge", "m5dn.2xlarge", "m5dn.4xlarge", "m5dn.12xlarge", "m5dn.16xlarge", "m5dn.24xlarge", "m5dn.metal",
+                    "m5n.large", "m5n.xlarge", "m5n.2xlarge", "m5n.4xlarge", "m5n.12xlarge", "m5n.16xlarge", "m5n.24xlarge", "m5n.metal",
+                    "m5zn.large", "m5zn.xlarge", "m5zn.2xlarge", "m5zn.3xlarge", "m5zn.6xlarge", "m5zn.12xlarge", "m5zn.metal",
+                    "p2.xlarge", "p2.8xlarge", "p2.16xlarge",
+                    "p3.2xlarge", "p3.8xlarge", "p3.16xlarge", "p3dn.24xlarge",
+                    "p4d.24xlarge",
+                    "r4.large", "r4.xlarge", "r4.2xlarge", "r4.4xlarge", "r4.8xlarge", "r4.16xlarge",
+                    "r5.large", "r5.xlarge", "r5.2xlarge", "r5.4xlarge", "r5.8xlarge", "r5.12xlarge", "r5.16xlarge", "r5.24xlarge", "r5.metal",
+                    "r5a.large", "r5a.xlarge", "r5a.2xlarge", "r5a.4xlarge", "r5a.8xlarge", "r5a.12xlarge", "r5a.16xlarge", "r5a.24xlarge",
+                    "r5ad.large", "r5ad.xlarge", "r5ad.2xlarge", "r5ad.4xlarge", "r5ad.8xlarge", "r5ad.12xlarge", "r5ad.16xlarge", "r5ad.24xlarge",
+                    "r5b.large", "r5b.xlarge", "r5b.2xlarge", "r5b.4xlarge", "r5b.8xlarge", "r5b.12xlarge", "r5b.16xlarge", "r5b.24xlarge",
+                    "r5d.large", "r5d.xlarge", "r5d.2xlarge", "r5d.4xlarge", "r5d.8xlarge", "r5d.12xlarge", "r5d.16xlarge", "r5d.24xlarge", "r5d.metal",
+                    "r5dn.large", "r5dn.xlarge", "r5dn.2xlarge", "r5dn.4xlarge", "r5dn.8xlarge", "r5dn.12xlarge", "r5dn.16xlarge", "r5dn.24xlarge", "r5dn.metal",
+                    "r5n.large", "r5n.xlarge", "r5n.2xlarge", "r5n.4xlarge", "r5n.8xlarge", "r5n.12xlarge", "r5n.16xlarge", "r5n.24xlarge", "r5n.metal",
+                    "x1.16xlarge", "x1.32xlarge",
+                    "x1e.xlarge", "x1e.2xlarge", "x1e.4xlarge", "x1e.8xlarge", "x1e.16xlarge", "x1e.32xlarge",
+                    "u-6tb1.metal", "u-9tb1.metal", "u-12tb1.metal", "u-18tb1.metal", "u-24tb1.metal",
+                    "z1d.large", "z1d.xlarge", "z1d.2xlarge", "z1d.3xlarge", "z1d.6xlarge", "z1d.12xlarge", "z1d.metal"
+                  ]
+  LicenseKeyBucketName:
+    Type: String
+    Description: 'Name of S3 bucket containing license key to deploy'
+    AllowedPattern: "^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$"
+    ConstraintDescription: >-
+      The bucket name can include numbers, lowercase letters, uppercase
+      letters, and hyphens (-). It cannot start or end with a hyphen (-).
+  LicenseKeyBucketRegion:
+    Type: String
+    Description: 'The AWS Region where the S3 bucket containing the license key (LicenseKeyBucketName) is hosted.'
+    AllowedValues: [
+      "us-east-1", "us-east-2", "us-west-1", "us-west-2", "af-south-1", "ap-east-1", "ap-south-1",
+      "ap-northeast-1", "ap-northeast-2", "ap-northeast-2", "ap-southeast-1", "ap-southeast-2",
+      "ca-central-1", "eu-central-1", "eu-west-1", "eu-west-2", "eu-west-3", "eu-south-1", "eu-north-1",
+      "me-south-1", "sa-east-1", "us-gov-east-1", "us-gov-west-1"]
+  LicenseKeyBucketPath:
+    Type: String
+    Description: 'Path to license key within the bucket'
+    Default: 'licensekey.dat'
+  PrivateSubnetId:
+    Type: AWS::EC2::Subnet::Id
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PublicAccessCIDR:
+    Type: String
+  PrivateSubnetCIDR:
+    Type: String
+
+Mappings:
+  RegionMap:
+    us-east-1:
+      IDOLLicenseServer: ami-0f1d2b0f5616ab077
+
+Resources:
+  IdolLicenseServerRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AWSMarketplaceMeteringFullAccess
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Statement:
+              - Action:
+                - 's3:GetObject'
+                Resource: !Sub 'arn:aws:s3:::${LicenseKeyBucketName}/${LicenseKeyBucketPath}'
+                Effect: Allow
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName} LicenseServer Role"
+
+  IdolLicenseServerProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !Ref IdolLicenseServerRole
+
+  IdolLicenseServerInstance:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Authentication:
+        S3AccessCreds:
+          type: S3
+          buckets:
+            - !Ref LicenseKeyBucketName
+          roleName: !Ref IdolLicenseServerRole
+      AWS::CloudFormation::Init:
+        configSets:
+          instanceSetup:
+            - configInstanceSetup
+          addServicesToController:
+            - configAddServicesToController
+        configInstanceSetup:
+          files:
+            /etc/cfn/cfn-hup.conf:
+              content: !Sub |
+                [main]
+                stack=${AWS::StackId}
+                region=${AWS::Region}
+                interval=1
+              mode: 000400
+              owner: root
+              group: root
+            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
+              content: !Sub |
+                [cfn-auto-reloader-hook]
+                triggers=post.update
+                path=Resources.IdolLicenseServerInstance.Metadata.AWS::CloudFormation::Init
+                action=../../opt/aws/bin/cfn-init --stack ${AWS::StackName} --resource IdolLicenseServerInstance --region ${AWS::Region}
+                runas=root
+            /opt/licenseserver/licensekey.dat:
+              source: !Sub 'https://${LicenseKeyBucketName}.s3.${LicenseKeyBucketRegion}.${AWS::URLSuffix}/${LicenseKeyBucketPath}'
+              owner: idol
+              group: idol
+              mode: '000644'
+              authentication: 'S3AccessCreds'
+
+          commands:
+            01-setLicenseServerClients:
+              command: 'sed -i "s/Clients=localhost/Clients=*/" /opt/licenseserver/idol.common.cfg'
+            02-setControllerClients:
+              command: 'sed -i "s/Clients=localhost/Clients=*/" /opt/controller/idol.common.cfg'
+
+          services:
+            sysvinit:
+              controller:
+                enabled: true
+                ensureRunning: true
+              licenseserver:
+                enabled: true
+                ensureRunning: true
+              cfn-hup:
+                enabled: true
+                ensureRunning: true
+                files:
+                  - /etc/cfn/cfn-hup.conf
+                  - /etc/cfn/cfn-auto-reloader.conf
+
+        configAddServicesToController:
+          commands:
+            01-addLicenseServerToController:
+              command: 'curl "http://localhost:41200/action=addService&ExecPath=/opt/licenseserver/licenseserver.exe&type=licenseserver&name=licenseserver&InitScriptPath=/etc/init.d/licenseserver"'
+
+    CreationPolicy:
+      ResourceSignal:
+        Count: 1
+        Timeout: PT10M
+
+    Properties:
+      IamInstanceProfile: !Ref IdolLicenseServerProfile
+      ImageId: !FindInMap [ RegionMap, !Ref AWS::Region, IDOLLicenseServer ]
+      InstanceType: !Ref LicenseServerInstanceType
+      SubnetId: !Ref PrivateSubnetId
+      SecurityGroupIds:
+        - !GetAtt IdolLicenseServerSecurityGroup.GroupId
+        - !GetAtt IdolControllerSecurityGroup.GroupId
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          yum install -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource IdolLicenseServerInstance --region ${AWS::Region} -c instanceSetup &&
+          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource IdolLicenseServerInstance --region ${AWS::Region} -c addServicesToController
+          /opt/aws/bin/cfn-signal --exit-code $? --stack ${AWS::StackName} --resource IdolLicenseServerInstance --region ${AWS::Region}
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName} LicenseServer Instance"
+
+  IdolLicenseServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable access to LicenseServer ports
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 20000
+          ToPort: 20000
+          CidrIp: !Ref PublicAccessCIDR
+        - IpProtocol: tcp
+          FromPort: 20000
+          ToPort: 20000
+          CidrIp: !Ref PrivateSubnetCIDR
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName} LicenseServer SG"
+
+  IdolControllerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable access to Controller ports
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 41200
+          ToPort: 41200
+          CidrIp: !Ref PrivateSubnetCIDR
+        - IpProtocol: tcp
+          FromPort: 41202
+          ToPort: 41202
+          CidrIp: !Ref PrivateSubnetCIDR
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName} Controller SG"
+
+Outputs:
+  LicenseServerPrivateIP:
+    Value: !GetAtt IdolLicenseServerInstance.PrivateIp
+  ControllerSecurityGroupID:
+    Value: !GetAtt IdolControllerSecurityGroup.GroupId

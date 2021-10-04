@@ -437,10 +437,6 @@ Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
       - Label:
-          default: "Access Configuration"
-        Parameters:
-          - PublicAccessCIDR
-      - Label:
           default: "IDOL Deployment Size"
         Parameters:
           - EngineCount
@@ -470,12 +466,6 @@ Metadata:
           - OrganisationalUnit
           - EmailAddress
       - Label:
-          default: "Network Configuration"
-        Parameters:
-          - VpcCIDR
-          - PublicSubnetCIDR
-          - PrivateSubnetCIDR
-      - Label:
           default: "NiFi ingest configuration"
         Parameters:
           - NiFiS3Bucket
@@ -485,167 +475,96 @@ Metadata:
 Mappings:
   RegionMap:
     us-east-1:
-      IDOLContent: ami-0d98681590207b843
-      IDOLDAH: ami-0260d0dc29629e0f5
-      IDOLDIH: ami-0d8a37b724b09059d
-      IDOLLicenseServer: ami-0f1d2b0f5616ab077
-      IDOLStaticServers: ami-055fb5b2d4cde6ac5
       IDOLNiFi: ami-0367e88d825235d43
       GatewayProxy: ami-0ab4d1e9cf9a1215a # /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
 
 Resources:
-  VPC:
-    Type: AWS::EC2::VPC
+  NetworkStack:
+    Type: AWS::CloudFormation::Stack
     Properties:
-      EnableDnsSupport: true
-      EnableDnsHostnames: true
-      CidrBlock: !Ref VpcCIDR
-      Tags:
-        - Key: Name
-          Value: !Ref AWS::StackName
-
-  InternetGateway:
-    Type: AWS::EC2::InternetGateway
+      TemplateURL: https://idol-templates.s3.amazonaws.com/network.yaml
+      TimeoutInMinutes: 20
+      Parameters:
+        VpcCIDR: !Ref VpcCIDR
+        PublicSubnetCIDR: !Ref PublicSubnetCIDR
+        PrivateSubnetCIDR: !Ref PrivateSubnetCIDR
+        PublicAccessCIDR: !Ref PublicAccessCIDR
+  LicensingStack:
+    Type: AWS::CloudFormation::Stack
     Properties:
-      Tags:
-        - Key: Name
-          Value: !Ref AWS::StackName
-
-  InternetGatewayAttachment:
-    Type: AWS::EC2::VPCGatewayAttachment
+      TemplateURL: https://idol-templates.s3.amazonaws.com/licensing.yaml
+      TimeoutInMinutes: 20
+      Parameters:
+        LicenseServerInstanceType: !Ref LicenseServerInstanceType
+        LicenseKeyBucketName: !Ref LicenseKeyBucketName
+        LicenseKeyBucketRegion: !Ref LicenseKeyBucketRegion
+        LicenseKeyBucketPath: !Ref LicenseKeyBucketPath
+        PrivateSubnetId: !GetAtt NetworkStack.Outputs.PrivateSubnet
+        VpcId: !GetAtt NetworkStack.Outputs.VPC
+        PublicAccessCIDR: !Ref PublicAccessCIDR
+        PrivateSubnetCIDR: !Ref PrivateSubnetCIDR
+  EnginesStack:
+    Type: AWS::CloudFormation::Stack
     Properties:
-      InternetGatewayId: !Ref InternetGateway
-      VpcId: !Ref VPC
-
-  # This is the interface endpoint for CloudFormation. You can only deploy this
-  # once per region since it will consume the unique DNS entry for the endpoint.
-  # Allows instances in the private subnet to use cfn-signal for their CreationPolicy
-  CfnEndpoint:
-    Type: AWS::EC2::VPCEndpoint
+      TemplateURL: https://idol-templates.s3.amazonaws.com/engines.yaml
+      TimeoutInMinutes: 20
+      Parameters:
+        ContentInstanceType: !Ref ContentInstanceType
+        EngineCount: !Ref EngineCount
+        VpcId: !GetAtt NetworkStack.Outputs.VPC
+        PrivateSubnetCIDR: !Ref PrivateSubnetCIDR
+        LicenseServerPrivateIp: !GetAtt LicensingStack.Outputs.LicenseServerPrivateIP
+        ControllerSecurityGroupID: !GetAtt LicensingStack.Outputs.ControllerSecurityGroupID
+        PrivateSubnet: !GetAtt NetworkStack.Outputs.PrivateSubnet
+        PrivateProfileArn: !GetAtt PrivateProfile.Arn
+  DistributedQueryStack:
+    Type: AWS::CloudFormation::Stack
     Properties:
-      VpcId: !Ref VPC
-      ServiceName: !Sub "com.amazonaws.${AWS::Region}.cloudformation"
-      VpcEndpointType: "Interface"
-      PrivateDnsEnabled: true
-      SubnetIds:
-        - !Ref PrivateSubnet
-      SecurityGroupIds:
-        - !Ref EndpointSG
-
-  PublicSubnet:
-    Type: AWS::EC2::Subnet
+      TemplateURL: https://idol-templates.s3.amazonaws.com/distributed-query.yaml
+      TimeoutInMinutes: 20
+      Parameters:
+        DAHInstanceType: !Ref DAHInstanceType
+        VpcId: !GetAtt NetworkStack.Outputs.VPC
+        PrivateSubnetCIDR: !Ref PrivateSubnetCIDR
+        EngineCount: !Ref EngineCount
+        ContentWaitData: !GetAtt EnginesStack.Outputs.ContentWaitData
+        LicenseServerPrivateIp: !GetAtt LicensingStack.Outputs.LicenseServerPrivateIP
+        PrivateSubnet: !GetAtt NetworkStack.Outputs.PrivateSubnet
+        ControllerSecurityGroupID: !GetAtt LicensingStack.Outputs.ControllerSecurityGroupID
+        PrivateProfile: !Ref PrivateProfile
+  DistributedIndexStack:
+    Type: AWS::CloudFormation::Stack
     Properties:
-      VpcId: !Ref VPC
-      AvailabilityZone: !Select [ 0, !GetAZs ]
-      CidrBlock: !Ref PublicSubnetCIDR
-      MapPublicIpOnLaunch: true
-      Tags:
-        - Key: Name
-          Value: !Sub "${AWS::StackName} Public Subnet"
-
-  PrivateSubnet:
-    Type: AWS::EC2::Subnet
+      TemplateURL: https://idol-templates.s3.amazonaws.com/distributed-index.yaml
+      TimeoutInMinutes: 20
+      Parameters:
+        DIHInstanceType: !Ref DIHInstanceType
+        VpcId: !GetAtt NetworkStack.Outputs.VPC
+        PrivateSubnetCIDR: !Ref PrivateSubnetCIDR
+        EngineCount: !Ref EngineCount
+        ContentWaitData: !GetAtt EnginesStack.Outputs.ContentWaitData
+        LicenseServerPrivateIp: !GetAtt LicensingStack.Outputs.LicenseServerPrivateIP
+        PrivateSubnet: !GetAtt NetworkStack.Outputs.PrivateSubnet
+        ControllerSecurityGroupID: !GetAtt LicensingStack.Outputs.ControllerSecurityGroupID
+        PrivateProfile: !Ref PrivateProfile
+        PublicSubnetCIDR: !Ref PublicSubnetCIDR
+  StaticServersStack:
+    Type: AWS::CloudFormation::Stack
     Properties:
-      VpcId: !Ref VPC
-      AvailabilityZone: !Select [ 0, !GetAZs ]
-      CidrBlock: !Ref PrivateSubnetCIDR
-      MapPublicIpOnLaunch: false
-      Tags:
-        - Key: Name
-          Value: !Sub "${AWS::StackName} Private Subnet"
-
-  PublicRouteTable:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref VPC
-      Tags:
-        - Key: Name
-          Value: !Sub "${AWS::StackName} Public Route Table"
-
-  DefaultPublicRoute:
-    Type: AWS::EC2::Route
-    DependsOn: InternetGatewayAttachment
-    Properties:
-      RouteTableId: !Ref PublicRouteTable
-      DestinationCidrBlock: !Ref PublicAccessCIDR
-      GatewayId: !Ref InternetGateway
-
-  PublicSubnetRouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref PublicRouteTable
-      SubnetId: !Ref PublicSubnet
-
-  NatEIP0:
-    Type: AWS::EC2::EIP
-    Properties:
-      Domain: vpc
-
-  NatGateway0:
-    Type: AWS::EC2::NatGateway
-    DependsOn: InternetGatewayAttachment
-    Properties:
-      AllocationId: !GetAtt NatEIP0.AllocationId
-      SubnetId: !Ref PublicSubnet
-      Tags:
-        - Key: Name
-          Value: !Sub "NatGateway-${AWS::StackName}"
-  
-  NatRoute0:
-    Type: AWS::EC2::Route
-    Properties:
-      RouteTableId: !Ref NatRouteTable
-      DestinationCidrBlock: !Ref PublicAccessCIDR
-      NatGatewayId: !Ref NatGateway0
-
-
-  NatRouteTable:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref VPC
-      Tags:
-        - Key: Name
-          Value: !Sub "${AWS::StackName} Private Route Table"
-
-  S3Endpoint:
-    Type: AWS::EC2::VPCEndpoint
-    Properties:
-      RouteTableIds:
-        - !Ref NatRouteTable
-        - !Ref PublicRouteTable
-      VpcId: !Ref VPC
-      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
-
-
-  PrivateSubnetRouteTableAssociation:
-    Type: AWS::EC2::SubnetRouteTableAssociation
-    Properties:
-      RouteTableId: !Ref NatRouteTable
-      SubnetId: !Ref PrivateSubnet
-
-
-  GatewayProxySG:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: "Inbound HTTP/HTTPS Traffic"
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: !Ref PublicAccessCIDR
-        - IpProtocol: tcp
-          FromPort: 9050
-          ToPort: 9051
-          CidrIp: !Ref PublicAccessCIDR
-        - IpProtocol: tcp
-          FromPort: 9070
-          ToPort: 9071
-          CidrIp: !Ref PublicAccessCIDR
-      VpcId: !Ref VPC
-      Tags:
-        - Key: "Name"
-          Value: !Sub "${AWS::StackName} Gateway Proxy SG"      
-
+      TemplateURL: https://idol-templates.s3.amazonaws.com/static-servers.yaml
+      TimeoutInMinutes: 20
+      Parameters:
+        StaticServersInstanceType: !Ref StaticServersInstanceType
+        VpcId: !GetAtt NetworkStack.Outputs.VPC
+        PrivateSubnetCIDR: !Ref PrivateSubnetCIDR
+        PublicSubnetCIDR: !Ref PublicSubnetCIDR
+        LicenseServerPrivateIp: !GetAtt LicensingStack.Outputs.LicenseServerPrivateIP
+        ContentWaitData: !GetAtt EnginesStack.Outputs.ContentWaitData
+        DAHPrivateIp: !GetAtt DistributedQueryStack.Outputs.DAHPrivateIP
+        DIHPrivateIp: !GetAtt DistributedIndexStack.Outputs.DIHPrivateIP
+        NiFiPrivateIp: !GetAtt IdolNiFiInstance.PrivateIp
+        PrivateSubnet: !GetAtt NetworkStack.Outputs.PrivateSubnet
+        PrivateProfile: !Ref PrivateProfile
   GatewayProxyInstance:
     Type: AWS::EC2::Instance
     Metadata:
@@ -678,75 +597,79 @@ Resources:
                 action=../../opt/aws/bin/cfn-init --stack ${AWS::StackName} --resource GatewayProxyInstance --region ${AWS::Region}
 
             /etc/httpd/conf.d/idol.conf:
-              content: !Sub |
-                Listen 443 https
-                Listen 9050 https
-                Listen 9051 https
-                Listen 9070 https
-                Listen 9071 https
+              content: !Sub 
+                - |
+                  Listen 443 https
+                  Listen 9050 https
+                  Listen 9051 https
+                  Listen 9070 https
+                  Listen 9071 https
 
-                ProxyRequests Off
-                ProxyPreserveHost On
+                  ProxyRequests Off
+                  ProxyPreserveHost On
 
-                SSLCertificateFile /etc/tls/gateway-cert.pem
-                SSLCipherSuite HIGH:MEDIUM:!aNULL:!MD5:!SEED:!IDEA
-                SSLEngine on
-                SSLProxyEngine on
-                SSLProtocol all -SSLv3
-                SSLProxyCheckPeerCN off
-                SSLProxyCheckPeerExpire off
-                SSLCryptoDevice builtin
-                SSLRandomSeed startup builtin
-                SSLRandomSeed connect builtin
+                  SSLCertificateFile /etc/tls/gateway-cert.pem
+                  SSLCipherSuite HIGH:MEDIUM:!aNULL:!MD5:!SEED:!IDEA
+                  SSLEngine on
+                  SSLProxyEngine on
+                  SSLProtocol all -SSLv3
+                  SSLProxyCheckPeerCN off
+                  SSLProxyCheckPeerExpire off
+                  SSLCryptoDevice builtin
+                  SSLRandomSeed startup builtin
+                  SSLRandomSeed connect builtin
 
-                ErrorLog logs/ssl_error_log
-                TransferLog logs/ssl_access_log
-                LogLevel warn
+                  ErrorLog logs/ssl_error_log
+                  TransferLog logs/ssl_access_log
+                  LogLevel warn
 
-                <VirtualHost _default_:443>
-                  <Location /find/>
-                    ProxyPass http://${IdolStaticServersInstance.PrivateIp}:8000/
-                    ProxyPassReverse /
-                  </Location>
-                
-                  <Location /siteadmin/>
-                    ProxyPass http://${IdolStaticServersInstance.PrivateIp}:8080/
-                    ProxyPassReverse /
-                  </Location>
-                
-                  <Location /licenseserver/>
-                    ProxyPass http://${IdolLicenseServerInstance.PrivateIp}:20000/
-                    ProxyPassReverse /
-                  </Location>
-                </VirtualHost>
-                
-                <VirtualHost *:9070>
-                  <Location "/">
-                    ProxyPass http://${IdolDIHInstance.PrivateIp}:9070/
-                    ProxyPassReverse /
-                  </Location>
-                </VirtualHost>
-                
-                <VirtualHost *:9071>
-                  <Location "/">
-                    ProxyPass http://${IdolDIHInstance.PrivateIp}:9071/
-                    ProxyPassReverse /
-                  </Location>
-                </VirtualHost>
-                
-                <VirtualHost *:9050>
-                  <Location "/">
-                    ProxyPass http://${IdolStaticServersInstance.PrivateIp}:9050/
-                    ProxyPassReverse /
-                  </Location>
-                </VirtualHost>
-                
-                <VirtualHost *:9051>
-                  <Location "/">
-                    ProxyPass http://${IdolStaticServersInstance.PrivateIp}:9051/
-                    ProxyPassReverse /
-                  </Location>
-                </VirtualHost>
+                  <VirtualHost _default_:443>
+                    <Location /find/>
+                      ProxyPass http://${StaticServersPrivateIP}:8000/
+                      ProxyPassReverse /
+                    </Location>
+                  
+                    <Location /siteadmin/>
+                      ProxyPass http://${StaticServersPrivateIP}:8080/
+                      ProxyPassReverse /
+                    </Location>
+                  
+                    <Location /licenseserver/>
+                      ProxyPass http://${LicenseServerPrivateIp}:20000/
+                      ProxyPassReverse /
+                    </Location>
+                  </VirtualHost>
+                  
+                  <VirtualHost *:9070>
+                    <Location "/">
+                      ProxyPass http://${DIHPrivateIp}:9070/
+                      ProxyPassReverse /
+                    </Location>
+                  </VirtualHost>
+                  
+                  <VirtualHost *:9071>
+                    <Location "/">
+                      ProxyPass http://${DIHPrivateIp}:9071/
+                      ProxyPassReverse /
+                    </Location>
+                  </VirtualHost>
+                  
+                  <VirtualHost *:9050>
+                    <Location "/">
+                      ProxyPass http://${StaticServersPrivateIP}:9050/
+                      ProxyPassReverse /
+                    </Location>
+                  </VirtualHost>
+                  
+                  <VirtualHost *:9051>
+                    <Location "/">
+                      ProxyPass http://${StaticServersPrivateIP}:9051/
+                      ProxyPassReverse /
+                    </Location>
+                  </VirtualHost>
+                - LicenseServerPrivateIp: !GetAtt LicensingStack.Outputs.LicenseServerPrivateIP
+                  DIHPrivateIp: !GetAtt DistributedIndexStack.Outputs.DIHPrivateIP
+                  StaticServersPrivateIP: !GetAtt StaticServersStack.Outputs.StaticServersPrivateIP
 
           commands:
             01-make_certificate_dir:
@@ -777,8 +700,8 @@ Resources:
     Properties:
       InstanceType: !Ref GatewayProxyInstanceType
       SecurityGroupIds:
-        - !Ref GatewayProxySG
-      SubnetId: !Ref PublicSubnet
+        - !GetAtt NetworkStack.Outputs.GatewayProxySG
+      SubnetId: !GetAtt NetworkStack.Outputs.PublicSubnet
       ImageId: !FindInMap [ RegionMap, !Ref AWS::Region, GatewayProxy ]
       UserData:
         Fn::Base64: !Sub |
@@ -826,1179 +749,10 @@ Resources:
           FromPort: 443
           ToPort: 443
           CidrIp: !Ref PublicAccessCIDR
-      VpcId: !Ref VPC
+      VpcId: !GetAtt NetworkStack.Outputs.VPC
       Tags:
         - Key: Name
           Value: !Sub "${AWS::StackName} EndpointSG"
-
-  IdolLicenseServerRole:
-    Type: "AWS::IAM::Role"
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: "Allow"
-            Principal:
-              Service:
-                - "ec2.amazonaws.com"
-            Action:
-              - "sts:AssumeRole"
-      Path: "/"
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-        - arn:aws:iam::aws:policy/AWSMarketplaceMeteringFullAccess
-      Policies:
-        - PolicyName: S3Access
-          PolicyDocument:
-            Statement:
-              - Action:
-                - 's3:GetObject'
-                Resource: !Sub 'arn:aws:s3:::${LicenseKeyBucketName}/${LicenseKeyBucketPath}'
-                Effect: Allow
-      Tags:
-        - Key: Name
-          Value: !Sub "${AWS::StackName} LicenseServer Role"
-
-  IdolLicenseServerProfile:
-    Type: AWS::IAM::InstanceProfile
-    Properties:
-      Path: "/"
-      Roles:
-        - !Ref IdolLicenseServerRole
-
-  IdolLicenseServerInstance:
-    DependsOn: [NatRoute0, CfnEndpoint]
-    Type: AWS::EC2::Instance
-    Metadata:
-      AWS::CloudFormation::Authentication:
-        S3AccessCreds:
-          type: S3
-          buckets:
-            - !Ref LicenseKeyBucketName
-          roleName: !Ref IdolLicenseServerRole
-      AWS::CloudFormation::Init:
-        configSets:
-          instanceSetup:
-            - configInstanceSetup
-          addServicesToController:
-            - configAddServicesToController
-        configInstanceSetup:
-          files:
-            /etc/cfn/cfn-hup.conf:
-              content: !Sub |
-                [main]
-                stack=${AWS::StackId}
-                region=${AWS::Region}
-                interval=1
-              mode: 000400
-              owner: root
-              group: root
-            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
-              content: !Sub |
-                [cfn-auto-reloader-hook]
-                triggers=post.update
-                path=Resources.IdolLicenseServerInstance.Metadata.AWS::CloudFormation::Init
-                action=../../opt/aws/bin/cfn-init --stack ${AWS::StackName} --resource IdolLicenseServerInstance --region ${AWS::Region}
-                runas=root
-            /opt/licenseserver/licensekey.dat:
-              source: !Sub 'https://${LicenseKeyBucketName}.s3.${LicenseKeyBucketRegion}.${AWS::URLSuffix}/${LicenseKeyBucketPath}'
-              owner: idol
-              group: idol
-              mode: '000644'
-              authentication: 'S3AccessCreds'
-
-          commands:
-            01-setLicenseServerClients:
-              command: 'sed -i "s/Clients=localhost/Clients=*/" /opt/licenseserver/idol.common.cfg'
-            02-setControllerClients:
-              command: 'sed -i "s/Clients=localhost/Clients=*/" /opt/controller/idol.common.cfg'
-
-          services:
-            sysvinit:
-              controller:
-                enabled: true
-                ensureRunning: true
-              licenseserver:
-                enabled: true
-                ensureRunning: true
-              cfn-hup:
-                enabled: true
-                ensureRunning: true
-                files:
-                  - /etc/cfn/cfn-hup.conf
-                  - /etc/cfn/cfn-auto-reloader.conf
-
-        configAddServicesToController:
-          commands:
-            01-addLicenseServerToController:
-              command: 'curl "http://localhost:41200/action=addService&ExecPath=/opt/licenseserver/licenseserver.exe&type=licenseserver&name=licenseserver&InitScriptPath=/etc/init.d/licenseserver"'
-
-    CreationPolicy:
-      ResourceSignal:
-        Count: 1
-        Timeout: PT10M
-
-    Properties:
-      IamInstanceProfile: !Ref IdolLicenseServerProfile
-      ImageId: !FindInMap [ RegionMap, !Ref AWS::Region, IDOLLicenseServer ]
-      InstanceType: !Ref LicenseServerInstanceType
-      SubnetId: !Ref PrivateSubnet
-      SecurityGroupIds:
-        - !GetAtt IdolLicenseServerSecurityGroup.GroupId
-        - !GetAtt IdolControllerSecurityGroup.GroupId
-      UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash -xe
-          yum install -y aws-cfn-bootstrap
-          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource IdolLicenseServerInstance --region ${AWS::Region} -c instanceSetup &&
-          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource IdolLicenseServerInstance --region ${AWS::Region} -c addServicesToController
-          /opt/aws/bin/cfn-signal --exit-code $? --stack ${AWS::StackName} --resource IdolLicenseServerInstance --region ${AWS::Region}
-      Tags:
-        - Key: Name
-          Value: !Sub "${AWS::StackName} LicenseServer Instance"
-
-  IdolLicenseServerSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Enable access to LicenseServer ports
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 20000
-          ToPort: 20000
-          CidrIp: !Ref PublicAccessCIDR
-        - IpProtocol: tcp
-          FromPort: 20000
-          ToPort: 20000
-          CidrIp: !Ref PrivateSubnetCIDR
-      Tags:
-        - Key: Name
-          Value: !Sub "${AWS::StackName} LicenseServer SG"
-
-  IdolControllerSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Enable access to Controller ports
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 41200
-          ToPort: 41200
-          CidrIp: !Ref PrivateSubnetCIDR
-        - IpProtocol: tcp
-          FromPort: 41202
-          ToPort: 41202
-          CidrIp: !Ref PrivateSubnetCIDR
-      Tags:
-        - Key: Name
-          Value: !Sub "${AWS::StackName} Controller SG"
-
-  IdolContentSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Enable access to Content ports
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 9100
-          ToPort: 9102
-          CidrIp: !Ref PrivateSubnetCIDR
-
-  IdolContentLaunchTemplate:
-    DependsOn: [NatRoute0, CfnEndpoint]
-    Type: AWS::EC2::LaunchTemplate
-    Metadata:
-      AWS::CloudFormation::Init:
-        configSets:
-          instanceSetup:
-            - configInstanceSetup
-          addServicesToController:
-            - configAddServicesToController
-        configInstanceSetup:
-          files:
-            /etc/cfn/cfn-hup.conf:
-              content: !Sub |
-                [main]
-                stack=${AWS::StackId}
-                region=${AWS::Region}
-                interval=1
-              mode: 000400
-              owner: root
-              group: root
-            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
-              content: !Sub |
-                [cfn-auto-reloader-hook]
-                triggers=post.update
-                path=Resources.IdolContentInstance.Metadata.AWS::CloudFormation::Init
-                action=../../opt/aws/bin/cfn-init --stack ${AWS::StackName} --resource IdolContentLaunchTemplate --region ${AWS::Region}
-                runas=root
-
-          commands:
-            01-setContentLicenseServer:
-              command: !Sub "sed -i \"s/LicenseServerHost=localhost/LicenseServerHost=${IdolLicenseServerInstance.PrivateIp}/\" /opt/content/idol.common.cfg"
-            02-setContentACIThreads:
-              command: "ACI_THREADS=$(expr $(nproc --all) + 1) && sed -i \"s/XXX_ACI_THREADS_XXX/$ACI_THREADS/g\" /opt/content/content.cfg"
-            03-setContentClients:
-              command: "sed -i \"s/Clients=localhost/Clients=*/\" /opt/content/idol.common.cfg"
-            04-setControllerLicenseServer:
-              command: !Sub "sed -i \"s/LicenseServerHost=localhost/LicenseServerHost=${IdolLicenseServerInstance.PrivateIp}/\" /opt/controller/idol.common.cfg"
-            05-setControllerClients:
-              command: "sed -i \"s/Clients=localhost/Clients=*/\" /opt/controller/idol.common.cfg"
-
-          services:
-            sysvinit:
-              controller:
-                enabled: true
-                ensureRunning: true
-              content:
-                enabled: true
-                ensureRunning: true
-              cfn-hup:
-                enabled: true
-                ensureRunning: true
-                files:
-                  - /etc/cfn/cfn-hup.conf
-                  - /etc/cfn/hooks.d/cfn-auto-reloader.conf
-
-        configAddServicesToController:
-          commands:
-            01-addContentToController:
-              command: 'curl "http://localhost:41200/action=addService&ExecPath=/opt/content/content.exe&type=content&name=content&InitScriptPath=/etc/init.d/content"'
-
-    Properties:
-      LaunchTemplateData:
-        IamInstanceProfile:
-          Arn: !GetAtt PrivateProfile.Arn
-        ImageId: !FindInMap [ RegionMap, !Ref AWS::Region, IDOLContent ]
-        InstanceType: !Ref ContentInstanceType
-        SecurityGroupIds:
-          - !GetAtt IdolContentSecurityGroup.GroupId
-          - !GetAtt IdolControllerSecurityGroup.GroupId
-        UserData:
-          Fn::Base64: !Sub
-            - |
-              #!/bin/bash -xe
-              # Update aws-cfn-bootstrap to the latest
-              yum install -y aws-cfn-bootstrap
-              # Call cfn-init script to install files and packages:
-              /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource IdolContentLaunchTemplate --region ${AWS::Region} -c instanceSetup &&
-              /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource IdolContentLaunchTemplate --region ${AWS::Region} -c addServicesToController
-              #Obtain our IP address - we will send it as custom data when signalling
-              IP_ADDR=$(curl http://169.254.169.254/latest/meta-data/local-ipv4)
-              UUID=$(cat /proc/sys/kernel/random/uuid)
-              SIGNAL_ID=IPAddr_$UUID
-              # Call cfn-signal script to send our custom data - must use a unique id, hence the use of the UUID
-              /opt/aws/bin/cfn-signal --success true --reason "Configuration complete" --data $IP_ADDR --id $SIGNAL_ID --exit-code 0 "${WaitURL}"
-            - WaitURL: !Ref IdolContentWaitHandle
-
-  IdolContentAutoscalingGroup:
-    Type: AWS::AutoScaling::AutoScalingGroup
-    Properties:
-      LaunchTemplate:
-        LaunchTemplateId: !Ref IdolContentLaunchTemplate
-        Version: !GetAtt IdolContentLaunchTemplate.LatestVersionNumber
-      MinSize: !Sub ${EngineCount}
-      MaxSize: !Sub ${EngineCount}
-      DesiredCapacity: !Sub ${EngineCount}
-      VPCZoneIdentifier:
-        - !Ref PrivateSubnet
-
-  IdolContentWaitHandle:
-    Type: AWS::CloudFormation::WaitConditionHandle
-    Properties: {}
-
-  IdolContentWaitCondition:
-    Type: AWS::CloudFormation::WaitCondition
-    DependsOn: IdolContentAutoscalingGroup
-    Properties:
-      Handle: !Ref IdolContentWaitHandle
-      Timeout: "1200"
-      Count: !Sub ${EngineCount}
-
-
-  IdolDAHSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Enable access to DAH ports
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 9060
-          ToPort: 9060
-          CidrIp: !Ref PrivateSubnetCIDR
-        - IpProtocol: tcp
-          FromPort: 9062
-          ToPort: 9062
-          CidrIp: !Ref PrivateSubnetCIDR
-
-
-  IdolDAHInstance:
-    DependsOn: [NatRoute0, CfnEndpoint]
-    Type: AWS::EC2::Instance
-    Metadata:
-      AWS::CloudFormation::Init:
-        configSets:
-          dahcfg:
-            - "dahfiles"
-          install:
-            - "installfiles"
-          addServicesToController:
-            - "configAddServicesToController"
-        dahfiles:
-          files:
-            /opt/dah/dah.cfg:
-              content: !Sub |
-                [Service]
-                ServicePort=9062
-                Access-Control-Allow-Origin=http://localhost:9060
-                XSLTemplates=TRUE
-
-                [Server]
-                Port=9060
-
-                Threads=4
-                MaxInputString=64000
-                XSLTemplates=TRUE
-                LogRequestTiming=TRUE
-
-                AbridgedGetContentBatchSize=1000
-                AbridgedThreshold=1000
-                EngineMaxRetries=2
-                EngineTimeout=60
-                MirrorMode=FALSE
-                SuggestTerms=40
-
-                //Load Balancing
-                DistributionMethod=1
-                //Round Robin
-                LoadBalanceMethod=1
-
-                TimeBetweenRetries=60000
-                SimpleCombinatorMode=true
-
-                DistributedEngines=${EngineCount}
-
-                [AuthorizationRoles]
-                0=AdminRole
-                1=QueryRole
-
-                [AdminRole]
-                StandardRoles=admin,servicecontrol,query,servicestatus
-                Clients=*
-
-                [QueryRole]
-                StandardRoles=query,servicestatus
-                Clients=*
-
-                [Logging]
-                LogArchiveDirectory=./logs/archive
-                LogDirectory=./logs
-                // These values apply to all streams, override on an individual basis
-                LogLevel=normal
-                LogExpireAction=compress
-                LogOldAction=move
-                LogMaxSizeKBs=20480
-                LogTime=TRUE
-
-                0=ApplicationLogStream
-                1=ActionLogStream
-                2=SecurityLogStream
-
-                [ApplicationLogStream]
-                LogFile=application.log
-                LogTypeCSVs=application
-
-                [ActionLogStream]
-                LogFile=action.log
-                LogTypeCSVs=action
-
-                [SecurityLogStream]
-                LogFile=security.log
-                LogTypeCSVs=security
-              mode: 000400
-              owner: root
-              group: root
-            /opt/setup/edit_hosts_file.sh:
-              content: !Sub |
-                #!/bin/bash -xe
-
-                function applyContentHostNames() {
-                  CONTENT_IPS=$(echo '${IdolContentWaitCondition.Data}' | python -c "import sys, json; print \" \".join(json.load(sys.stdin).values())")
-                  CONTENT_COUNT=0
-                  for ip in $CONTENT_IPS
-                  do
-                      echo "$ip    content-instance-$CONTENT_COUNT" >> /etc/hosts
-                      CONTENT_COUNT=$((CONTENT_COUNT+1))
-                  done
-                }
-
-                echo "127.0.0.1    localhost localhost.localdomain localhost4 localhost4.localdomain4 static-servers-instance" > /etc/hosts
-                echo "::1          localhost6 localhost6.localdomain6" >> /etc/hosts
-                applyContentHostNames
-              owner: "root"
-              group: "root"
-              mode: "000500"
-
-          commands:
-            01-editHostsFile:
-              command: "/opt/setup/edit_hosts_file.sh"
-
-        installfiles:
-          files:
-            /etc/cfn/cfn-hup.conf:
-              content: !Sub |
-                [main]
-                stack=${AWS::StackId}
-                region=${AWS::Region}
-                interval=1
-              mode: 000400
-              owner: root
-              group: root
-            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
-              content: !Sub |
-                [cfn-auto-reloader-hook]
-                triggers=post.update
-                path=Resources.IdolDAHInstance.Metadata.AWS::CloudFormation::Init
-                action=../../opt/aws/bin/cfn-init --stack ${AWS::StackName} --resource IdolDAHInstance --region ${AWS::Region} -c install
-                runas=root
-            /opt/dah/add_content_engines.sh:
-              content: !Sub |
-                #!/bin/bash -xe
-
-                function addContentEngines() {
-                  #Parse Content IP addresses and add them to the DAH config file
-                  CONTENT_IPS=$(echo '${IdolContentWaitCondition.Data}' | python -c "import sys, json; print \" \".join(json.load(sys.stdin).values())")
-                  IP_COUNTER=0
-                  for ip in $CONTENT_IPS
-                  do
-                      echo -e "\n\n[DistributedEngine$IP_COUNTER]\nhost=content-instance-$IP_COUNTER\nport=9100" >> /opt/dah/dah.cfg
-                      IP_COUNTER=$(($IP_COUNTER+1))
-                  done
-                }
-
-                addContentEngines
-              owner: "root"
-              group: "root"
-              mode: "000500"
-
-          commands:
-            01-addContentEngines:
-              command: "/opt/dah/add_content_engines.sh"
-            02-setControllerLicenseServer:
-              command: !Sub "sed -i \"s/LicenseServerHost=localhost/LicenseServerHost=${IdolLicenseServerInstance.PrivateIp}/\" /opt/controller/idol.common.cfg"
-            03-setControllerClients:
-              command: "sed -i \"s/Clients=localhost/Clients=*/g\" /opt/controller/idol.common.cfg"
-
-          services:
-            sysvinit:
-              controller:
-                enabled: true
-                ensureRunning: true
-              dah:
-                enabled: true
-                ensureRunning: true
-              cfn-hup:
-                enabled: true
-                ensureRunning: true
-                files:
-                  - /etc/cfn/cfn-hup.conf
-                  - /etc/cfn/hooks.d/cfn-auto-reloader.conf
-
-        configAddServicesToController:
-          commands:
-            01-addContentToController:
-              command: 'curl "http://localhost:41200/action=addService&ExecPath=/opt/dah/dah.exe&type=dah&name=dah&InitScriptPath=/etc/init.d/dah"'
-
-    CreationPolicy:
-      ResourceSignal:
-        Count: 1
-        Timeout: PT10M
-
-    Properties:
-      IamInstanceProfile: !Ref PrivateProfile
-      ImageId: !FindInMap [ RegionMap, !Ref AWS::Region, IDOLDAH ]
-      InstanceType: !Ref DAHInstanceType
-      SubnetId: !Ref PrivateSubnet
-      SecurityGroupIds:
-        - !GetAtt IdolDAHSecurityGroup.GroupId
-        - !GetAtt IdolControllerSecurityGroup.GroupId
-      UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash -xe
-          # Update aws-cfn-bootstrap to the latest
-          yum install -y aws-cfn-bootstrap
-          #Call cfn-init script to create the DAH cfg we want
-          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource IdolDAHInstance --region ${AWS::Region} -c dahcfg &&
-          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource IdolDAHInstance --region ${AWS::Region} -c install &&
-          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource IdolDAHInstance --region ${AWS::Region} -c addServicesToController
-          # Call cfn-signal script to send a signal with exit code
-          /opt/aws/bin/cfn-signal --exit-code $? --stack ${AWS::StackName} --resource IdolDAHInstance --region ${AWS::Region}
-
-  IdolDIHSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Enable access to DIH ports
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 9070
-          ToPort: 9070
-          CidrIp: !Ref PrivateSubnetCIDR
-        - IpProtocol: tcp
-          FromPort: 9070
-          ToPort: 9070
-          CidrIp: !Ref PublicSubnetCIDR
-        - IpProtocol: tcp
-          FromPort: 9071
-          ToPort: 9071
-          CidrIp: !Ref PublicSubnetCIDR
-        - IpProtocol: tcp
-          FromPort: 9072
-          ToPort: 9072
-          CidrIp: !Ref PrivateSubnetCIDR
-
-  IdolDIHInstance:
-    DependsOn: [NatRoute0, CfnEndpoint]
-    Type: AWS::EC2::Instance
-    Metadata:
-      AWS::CloudFormation::Init:
-        configSets:
-          dihcfg:
-            - "dihfiles"
-          install:
-            - "installfiles"
-          addServicesToController:
-            - "configAddServicesToController"
-        dihfiles:
-          files:
-            /opt/dih/dih.cfg:
-              content: !Sub |
-                [Service]
-                ServicePort=9072
-                Access-Control-Allow-Origin=http://localhost:9070
-                XSLTemplates=FALSE
-
-                [Server]
-                Port=9070
-                DIHPort=9071
-
-                Threads=4
-                MaxInputString=64000
-                XSLTemplates=FALSE
-                LogRequestTiming=TRUE
-
-                MirrorMode=FALSE
-                DistributeByReference=TRUE
-                UseConsistentHashing=TRUE
-                DocumentDelimiterCSVs=*/DOCUMENT
-                MaximumRetries=10
-
-                [AuthorizationRoles]
-                0=AdminRole
-                1=QueryRole
-                2=IndexRole
-
-                [AdminRole]
-                StandardRoles=admin,servicecontrol,query,servicestatus
-                Clients=*
-
-                [QueryRole]
-                StandardRoles=query,servicestatus
-                Clients=*
-
-                [IndexRole]
-                StandardRoles=index
-                Actions=getpid,getstatus,indexergetstatus
-                ServiceActions=getstatusinfo
-                Clients=*
-
-                [IndexQueue]
-                IndexQueueMaxHistory=5000
-                IndexQueueInitialSize=10240
-
-                [ConsistentHashing]
-                VirtualNodes=4096
-                Replicas=0
-
-                [DistributionIDOLServers]
-                Number=${EngineCount}
-
-                [FieldProcessing]
-                0=SetReferenceFields
-
-                [SetReferenceFields]
-                Property=ReferenceFields
-                PropertyFieldCSVs=*/DREREFERENCE
-
-                [ReferenceFields]
-                ReferenceType=TRUE
-                TrimSpaces=TRUE
-
-                [Logging]
-                LogArchiveDirectory=./logs/archive
-                LogDirectory=./logs
-                // These values apply to all streams, override on an individual basis
-                LogLevel=normal
-                LogExpireAction=compress
-                LogOldAction=move
-                LogMaxSizeKBs=20480
-                LogTime=TRUE
-
-                0=ApplicationLogStream
-                1=ActionLogStream
-                2=IndexLogStream
-
-                [ApplicationLogStream]
-                LogFile=application.log
-                LogTypeCSVs=application
-
-                [ActionLogStream]
-                LogFile=action.log
-                LogTypeCSVs=action
-
-                [IndexLogStream]
-                LogFile=index.log
-                LogTypeCSVs=index
-              mode: 000400
-              owner: root
-              group: root
-            /opt/setup/edit_hosts_file.sh:
-              content: !Sub |
-                #!/bin/bash -xe
-
-                function applyContentHostNames() {
-                  CONTENT_IPS=$(echo '${IdolContentWaitCondition.Data}' | python -c "import sys, json; print \" \".join(json.load(sys.stdin).values())")
-                  CONTENT_COUNT=0
-                  for ip in $CONTENT_IPS
-                  do
-                      echo "$ip    content-instance-$CONTENT_COUNT" >> /etc/hosts
-                      CONTENT_COUNT=$((CONTENT_COUNT+1))
-                  done
-                }
-
-                echo "127.0.0.1    localhost localhost.localdomain localhost4 localhost4.localdomain4 static-servers-instance" > /etc/hosts
-                echo "::1          localhost6 localhost6.localdomain6" >> /etc/hosts
-                applyContentHostNames
-              owner: "root"
-              group: "root"
-              mode: "000500"
-
-          commands:
-            01-editHostsFile:
-              command: "/opt/setup/edit_hosts_file.sh"
-
-        installfiles:
-          files:
-            /etc/cfn/cfn-hup.conf:
-              content: !Sub |
-                [main]
-                stack=${AWS::StackId}
-                region=${AWS::Region}
-                interval=1
-              mode: 000400
-              owner: root
-              group: root
-            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
-              content: !Sub |
-                [cfn-auto-reloader-hook]
-                triggers=post.update
-                path=Resources.IdolDIHInstance.Metadata.AWS::CloudFormation::Init
-                action=../../opt/aws/bin/cfn-init --stack ${AWS::StackName} --resource IdolDIHInstance --region ${AWS::Region} -c install
-                runas=root
-            /opt/dih/add_content_engines.sh:
-              content: !Sub |
-                #!/bin/bash -xe
-
-                function addContentEngines() {
-                  #Parse Content IP addresses and add them to the DIH config file
-                  CONTENT_IPS=$(echo '${IdolContentWaitCondition.Data}' | python -c "import sys, json; print \" \".join(json.load(sys.stdin).values())")
-                  IP_COUNTER=0
-                  for ip in $CONTENT_IPS
-                  do
-                      echo -e "\n\n[IDOLServer$IP_COUNTER]\nhost=content-instance-$IP_COUNTER\nport=9100" >> /opt/dih/dih.cfg
-                      IP_COUNTER=$(($IP_COUNTER+1))
-                  done
-                }
-
-                addContentEngines
-              owner: "root"
-              group: "root"
-              mode: "000500"
-
-          commands:
-            01-addContentEngines:
-              command: "/opt/dih/add_content_engines.sh"
-            02-setControllerLicenseServer:
-              command: !Sub "sed -i \"s/LicenseServerHost=localhost/LicenseServerHost=${IdolLicenseServerInstance.PrivateIp}/\" /opt/controller/idol.common.cfg"
-            03-setControllerClients:
-              command: "sed -i \"s/Clients=localhost/Clients=*/g\" /opt/controller/idol.common.cfg"
-
-          services:
-            sysvinit:
-              controller:
-                enabled: true
-                ensureRunning: true
-              dih:
-                enabled: true
-                ensureRunning: true
-              cfn-hup:
-                enabled: true
-                ensureRunning: true
-                files:
-                  - /etc/cfn/cfn-hup.conf
-                  - /etc/cfn/hooks.d/cfn-auto-reloader.conf
-
-        configAddServicesToController:
-          commands:
-            01-addContentToController:
-              command: 'curl "http://localhost:41200/action=addService&ExecPath=/opt/dih/dih.exe&type=dih&name=dih&InitScriptPath=/etc/init.d/dih"'
-
-    CreationPolicy:
-      ResourceSignal:
-        Count: 1
-        Timeout: PT10M
-
-    Properties:
-      IamInstanceProfile: !Ref PrivateProfile
-      ImageId: !FindInMap [ RegionMap, !Ref AWS::Region, IDOLDIH ]
-      InstanceType: !Ref DIHInstanceType
-      SubnetId: !Ref PrivateSubnet
-      SecurityGroupIds:
-        - !GetAtt IdolDIHSecurityGroup.GroupId
-        - !GetAtt IdolControllerSecurityGroup.GroupId
-      UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash -xe
-          # Update aws-cfn-bootstrap to the latest
-          yum install -y aws-cfn-bootstrap
-          #Call cfn-init script to create the DIH cfg we want
-          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource IdolDIHInstance --region ${AWS::Region} -c dihcfg &&
-          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource IdolDIHInstance --region ${AWS::Region} -c install &&
-          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource IdolDIHInstance --region ${AWS::Region} -c addServicesToController
-          # Call cfn-signal script to send a signal with exit code
-          /opt/aws/bin/cfn-signal --exit-code $? --stack ${AWS::StackName} --resource IdolDIHInstance --region ${AWS::Region}
-
-  IdolUIsSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Enable access to UI ports
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 8080
-          ToPort: 8080
-          CidrIp: !Ref PublicSubnetCIDR
-        - IpProtocol: tcp
-          FromPort: 8000
-          ToPort: 8000
-          CidrIp: !Ref PublicSubnetCIDR
-
-  IdolAgentstoreSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Enable access to Agentstore Index ports
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 9050
-          ToPort: 9050
-          CidrIp: !Ref PrivateSubnetCIDR
-        - IpProtocol: tcp
-          FromPort: 9050
-          ToPort: 9050
-          CidrIp: !Ref PublicSubnetCIDR
-        - IpProtocol: tcp
-          FromPort: 9051
-          ToPort: 9051
-          CidrIp: !Ref PublicSubnetCIDR
-        - IpProtocol: tcp
-          FromPort: 9052
-          ToPort: 9052
-          CidrIp: !Ref PrivateSubnetCIDR
-
-  CommunitySG:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Enable local access to Community ports
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 9030
-          ToPort: 9030
-          CidrIp: !Ref PrivateSubnetCIDR
-        - IpProtocol: tcp
-          FromPort: 9032
-          ToPort: 9032
-          CidrIp: !Ref PrivateSubnetCIDR
-
-  ViewSG:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Enable local access to View ports
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 9080
-          ToPort: 9080
-          CidrIp: !Ref PrivateSubnetCIDR
-        - IpProtocol: tcp
-          FromPort: 9082
-          ToPort: 9082
-          CidrIp: !Ref PrivateSubnetCIDR
-
-
-  IdolStaticServersInstance:
-    DependsOn: [NatRoute0, CfnEndpoint]
-    Type: AWS::EC2::Instance
-    Metadata:
-      AWS::CloudFormation::Init:
-        configSets:
-          instanceSetup:
-            - configInstanceSetup
-          startAgentstore:
-            - configStartAgentstore
-          startCommunity:
-            - configStartCommunity
-          bootstrapUsers:
-            - configBootstrapUsers
-          startView:
-            - configStartView
-          startController:
-            - configStartController
-          addServicesToController:
-            - configAddServicesToController
-          startCoordinator:
-            - configStartCoordinator
-          addControllers:
-            - configAddControllers
-          startUIs:
-            - configStartUIs
-
-        configInstanceSetup:
-          files:
-            /etc/cfn/cfn-hup.conf:
-              content: !Sub |
-                [main]
-                stack=${AWS::StackId}
-                region=${AWS::Region}
-                interval=1
-              mode: 000400
-              owner: root
-              group: root
-            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
-              content: !Sub |
-                [cfn-auto-reloader-hook]
-                triggers=post.update
-                path=Resources.IdolStaticServersInstance.Metadata.AWS::CloudFormation::Init
-                action=../../opt/aws/bin/cfn-init --stack ${AWS::StackName} --resource IdolStaticServersInstance --region ${AWS::Region}
-                runas=root
-            /opt/setup/edit_hosts_file.sh:
-              content: !Sub |
-                #!/bin/bash -xe
-
-                function applyContentHostNames() {
-                  CONTENT_IPS=$(echo '${IdolContentWaitCondition.Data}' | python -c "import sys, json; print \" \".join(json.load(sys.stdin).values())")
-                  CONTENT_COUNT=0
-                  for ip in $CONTENT_IPS
-                  do
-                      echo "$ip    content-instance-$CONTENT_COUNT" >> /etc/hosts
-                      CONTENT_COUNT=$((CONTENT_COUNT+1))
-                  done
-                }
-
-                echo "127.0.0.1    localhost localhost.localdomain localhost4 localhost4.localdomain4 static-servers-instance" > /etc/hosts
-                echo "::1          localhost6 localhost6.localdomain6" >> /etc/hosts
-                applyContentHostNames
-                echo "${IdolDAHInstance.PrivateIp}    dah-instance" >> /etc/hosts
-                echo "${IdolDIHInstance.PrivateIp}    dih-instance" >> /etc/hosts
-                echo "${IdolLicenseServerInstance.PrivateIp}    license-server-instance" >> /etc/hosts
-              owner: "root"
-              group: "root"
-              mode: "000500"
-
-          commands:
-            01-editHostsFile:
-              command: "/opt/setup/edit_hosts_file.sh"
-
-          services:
-            sysvinit:
-              cfn-hup:
-                enabled: true
-                ensureRunning: true
-                files:
-                  - /etc/cfn/cfn-hup.conf
-                  - /etc/cfn/hooks.d/cfn-auto-reloader.conf
-
-
-        configStartAgentstore:
-          commands:
-            01-useAgentstoreConfig:
-              command: "mv /opt/content/alt_configs/agentstore.cfg /opt/content/content.cfg"
-            01a-setAgentstoreConfigOwner:
-              command: "chown idol:idol content.cfg"
-              cwd: "/opt/content"
-            02-setLicenseServer:
-              command: "sed -i \"s/LicenseServerHost=localhost/LicenseServerHost=license-server-instance/\" /opt/content/idol.common.cfg"
-            03-setClients:
-              command: "sed -i \"s/Clients=localhost/Clients=*/\" /opt/content/idol.common.cfg"
-            04-setACIThreads:
-              command: "ACI_THREADS=$(expr $(nproc --all) + 1) && sed -i \"s/XXX_ACI_THREADS_XXX/$ACI_THREADS/g\" /opt/content/content.cfg"
-            05-setServiceACIPort:
-              command: "sed -i \"s/ACIPORT=9100/ACIPORT=9050/\" /etc/init.d/content"
-            06-setServiceServicePort:
-              command: "sed -i \"s/SERVICEPORT=9102/SERVICEPORT=9052/\" /etc/init.d/content"
-
-          services:
-            sysvinit:
-              content:
-                enabled: true
-                ensureRunning: true
-
-        configStartCommunity:
-          files:
-            /opt/community/bootstrap_users.sh:
-              content: |
-                #!/bin/bash -xe
-
-                function bootstrapUsers() {
-                    local ADMIN_USERNAME=admin
-                    local ADMIN_PASSWORD=$(cat /opt/community/random_password.txt)
-                    local HTTP_SCHEME=http
-                    local COMMUNITY_PORT=9030
-
-                    if [ -e adduser.admin.xml ]
-                    then
-                        echo "Community already bootstrapped"
-                    else
-                        echo "Bootstrapping community"
-                        wget -qO adduser.admin.xml --no-proxy "$HTTP_SCHEME://localhost:$COMMUNITY_PORT/a=UserAdd&userName=$ADMIN_USERNAME&password=$ADMIN_PASSWORD" --no-check-certificate
-                        for role in FindUser FindAdmin FindBI useradmin
-                        do
-                            wget -qO addrole.$role.xml --no-proxy "$HTTP_SCHEME://localhost:$COMMUNITY_PORT/a=RoleAdd&roleName=$role" --no-check-certificate
-                            wget -qO addrole.$role.admin.xml --no-proxy "$HTTP_SCHEME://localhost:$COMMUNITY_PORT/a=RoleAddUserToRole&RoleName=$role&userName=$ADMIN_USERNAME" --no-check-certificate
-                        done
-                    fi
-                }
-
-                bootstrapUsers
-              owner: "root"
-              group: "root"
-              mode: "000500"
-
-          commands:
-            01-setLicenseServer:
-              command: "sed -i \"s/LicenseServerHost=localhost/LicenseServerHost=license-server-instance/\" /opt/community/idol.common.cfg"
-            02-setClients:
-              command: "sed -i \"s/Clients=localhost/Clients=*/\" /opt/community/idol.common.cfg"
-            03-setACIThreads:
-              command: "ACI_THREADS=$(expr $(nproc --all) + 1) && sed -i \"s/Threads=4/Threads=$ACI_THREADS/g\" /opt/community/community.cfg"
-            04-setDataDREHost:
-              command: "sed -i \"0,/host=localhost/{s/host=localhost/host=dah-instance/}\" /opt/community/community.cfg"
-            05-setDataDREPort:
-              command: "sed -i \"0,/aciport=9100/{s/aciport=9100/aciport=9060/}\" /opt/community/community.cfg"
-            06-setSecurityInfoKeysPath:
-              command: "sed -i \"s/SecurityInfoKeys=\\/path\\/to\\/aes.keyfile/SecurityInfoKeys=\\/opt\\/community\\/aes.key/\" /opt/community/community.cfg"
-            07-createAESKey:
-              command: "/opt/community/autpassword.exe -x -tAES -oKeyFile=/opt/community/aes.key"
-            07a-setAESKeyOwner:
-              command: "chown idol:idol aes.key"
-              cwd: "/opt/community"
-            08-createPasswordFile:
-              command: "openssl rand -hex 16 > /opt/community/random_password.txt"
-
-          services:
-            sysvinit:
-              community:
-                enabled: true
-                ensureRunning: true
-
-        configBootstrapUsers:
-          commands:
-            01-bootstrapUsers:
-              command: "/opt/community/bootstrap_users.sh"
-
-        configStartView:
-          commands:
-            01-setLicenseServer:
-              command: "sed -i \"s/LicenseServerHost=localhost/LicenseServerHost=license-server-instance/\" /opt/view/idol.common.cfg"
-            02-setClients:
-              command: "sed -i \"s/Clients=localhost/Clients=*/\" /opt/view/idol.common.cfg"
-            03-setACIThreads:
-              command: "ACI_THREADS=$(expr $(nproc --all) + 1) && sed -i \"s/Threads=4/Threads=$ACI_THREADS/g\" /opt/view/view.cfg"
-            04-setDataDREHost:
-              command: "sed -i \"s/IDOLPort=9060/IDOLPort=9050/\" /opt/view/view.cfg"
-            05-updateViewCfg:
-              command: !Sub | 
-                sed -i 's#\[Viewing\]#[UniversalViewing]\
-                Enabled=TRUE\
-                DocumentStoreHost=dah-instance\
-                DocumentStorePort=9060\
-                DistributedConnectorReferenceField=AUTN_IDENTIFIER\
-                FileSystemReferenceField=ORIGINAL_LOCATION\
-                ConnectorGroupField=CONNECTOR_GROUP\
-                \
-                [Viewing]\
-                DistributedConnectorHost=${IdolNiFiInstance.PrivateIp}\
-                DistributedConnectorPort=10000\
-                LegacyRendering=TRUE\
-                #' /opt/view/view.cfg
-
-          services:
-            sysvinit:
-              view:
-                enabled: true
-                ensureRunning: true
-
-        configStartController:
-          commands:
-            01-setLicenseServer:
-              command: "sed -i \"s/LicenseServerHost=localhost/LicenseServerHost=license-server-instance/\" /opt/controller/idol.common.cfg"
-            02-setClients:
-              command: "sed -i \"s/Clients=localhost/Clients=*/\" /opt/controller/idol.common.cfg"
-
-          services:
-            sysvinit:
-              controller:
-                enabled: true
-                ensureRunning: true
-
-        configAddServicesToController:
-          commands:
-            01-addContentToController:
-              command: 'curl "http://localhost:41200/action=addService&ExecPath=/opt/content/content.exe&type=content&name=agentstore&InitScriptPath=/etc/init.d/content"'
-            02-addCommunityToController:
-              command: 'curl "http://localhost:41200/action=addService&ExecPath=/opt/community/community.exe&type=community&name=community&InitScriptPath=/etc/init.d/community"'
-            03-addViewToController:
-              command: 'curl "http://localhost:41200/action=addService&ExecPath=/opt/view/view.exe&type=view&name=view&InitScriptPath=/etc/init.d/view"'
-
-        configStartCoordinator:
-          files:
-            /opt/coordinator/register_content_engine_controllers.sh:
-              content: !Sub |
-                #!/bin/bash -xe
-
-                function registerContentEngineControllers() {
-                  #Parse Content IP addresses and register their controllers
-                  NUM_CONTENT_IPS=$(echo '${IdolContentWaitCondition.Data}' | python -c "import sys, json; print len(json.load(sys.stdin).values())")
-                  LOOP_MAX=$((NUM_CONTENT_IPS-1))
-                  i=0
-                  while [[ $i -le $LOOP_MAX ]]
-                  do
-                      RESP=$(curl "http://localhost:40200/action=addController&connectByHostName=true&HostName=content-instance-$i&Port=41200")
-                      echo $RESP
-                      ((i = i + 1))
-                  done
-                }
-
-                registerContentEngineControllers
-              owner: "root"
-              group: "root"
-              mode: "000500"
-
-          commands:
-            01-setLicenseHost:
-              command: "sed -i \"s/LicenseServerHost=localhost/LicenseServerHost=license-server-instance/\" /opt/coordinator/idol.common.cfg"
-            02-setRoleClients:
-              command: "sed -i \"s/Clients=localhost/Clients=*/\" /opt/coordinator/idol.common.cfg"
-
-          services:
-            sysvinit:
-              coordinator:
-                enabled: true
-                ensureRunning: true
-
-        configAddControllers:
-          commands:
-            01-addContents:
-              command: "/opt/coordinator/register_content_engine_controllers.sh"
-            02-addDAH:
-              command: "curl \"http://localhost:40200/action=addController&connectByHostName=true&HostName=dah-instance&Port=41200\""
-            03-addDIH:
-              command: "curl \"http://localhost:40200/action=addController&connectByHostName=true&HostName=dih-instance&Port=41200\""
-            04-addStaticServers:
-              command: "curl \"http://localhost:40200/action=addController&connectByHostName=true&HostName=static-servers-instance&Port=41200\""
-            05-addLicenseServer:
-              command: "curl \"http://localhost:40200/action=addController&connectByHostName=true&HostName=license-server-instance&Port=41200\""
-              
-
-
-        configStartUIs:
-          packages:
-            yum:
-              jq: []
-
-          commands:
-            01-adjustFindHomePermissions:
-              command: "chmod -R 777 home"
-              cwd: "/opt/find"
-            02-configureFind:
-              command: "jq '.login.community.host = \"localhost\"' config.json | jq '.login.defaultLogin.username=null' | jq '.login.defaultLogin.password=null' | jq '.login.method=\"autonomy\"' | jq '.content.host = \"dah-instance\"' | jq '.content.port = 9060' | jq '.view.host = \"localhost\"' | jq '.mmap.enabled = false' > config_rewrite.json"
-              cwd: "/opt/find/home"
-            03-useNewFindConfiguration:
-              command: "mv config_rewrite.json config.json"
-              cwd: "/opt/find/home"
-            04-setFindConfigOwner:
-              command: "chown find:find config.json"
-              cwd: "/opt/find/home"
-            05-resetFindHomePermissions:
-              command: "chmod 755 home && chmod 664 home/config.json && chmod 755 home/logs && chmod 644 home/logs/*"
-              cwd: "/opt/find"
-            06-adjustSiteAdminHomePermissions:
-              command: "chmod -R 777 home"
-              cwd: "/opt/siteadmin"
-            07-configureSiteAdmin:
-              command: "jq '.login.defaultLogin.username = null' config.json | jq '.login.defaultLogin.password = null' | jq '.login.method = \"autonomy\"' | jq '.login.community.host = \"localhost\"' | jq '.coordinator.host = \"localhost\"' > config_rewrite.json"
-              cwd: "/opt/siteadmin/home"
-            08-useNewSiteAdminConfiguration:
-              command: "mv config_rewrite.json config.json"
-              cwd: "/opt/siteadmin/home"
-            09-setSiteAdminConfigOwner:
-              command: "chown siteadmin:siteadmin config.json"
-              cwd: "/opt/siteadmin/home"
-            10-adresetSiteAdminHomePermissions:
-              command: "chmod 755 home && chmod 644 home/config.json && chmod 755 home/logs && chmod 644 home/logs/*"
-              cwd: "/opt/siteadmin"
-
-          services:
-            sysvinit:
-              find:
-                enabled: true
-                ensureRunning: true
-              siteadmin:
-                enabled: true
-                ensureRunning: true
-
-    CreationPolicy:
-      ResourceSignal:
-        Count: 1
-        Timeout: PT30M
-
-    Properties:
-      IamInstanceProfile: !Ref PrivateProfile
-      ImageId: !FindInMap [ RegionMap, !Ref AWS::Region, IDOLStaticServers ]
-      InstanceType: !Ref StaticServersInstanceType
-      SubnetId: !Ref PrivateSubnet
-      SecurityGroupIds:
-        - !GetAtt IdolUIsSecurityGroup.GroupId
-        - !GetAtt IdolAgentstoreSecurityGroup.GroupId
-        - !GetAtt CommunitySG.GroupId
-        - !GetAtt ViewSG.GroupId
-      UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash -xe
-          yum install -y aws-cfn-bootstrap
-          # do we need some error handling between thene cfn-inits?
-          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource IdolStaticServersInstance --region ${AWS::Region} -c instanceSetup &&
-          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource IdolStaticServersInstance --region ${AWS::Region} -c startAgentstore &&
-          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource IdolStaticServersInstance --region ${AWS::Region} -c startCommunity &&
-          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource IdolStaticServersInstance --region ${AWS::Region} -c bootstrapUsers &&
-          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource IdolStaticServersInstance --region ${AWS::Region} -c startView &&
-          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource IdolStaticServersInstance --region ${AWS::Region} -c startController &&
-          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource IdolStaticServersInstance --region ${AWS::Region} -c addServicesToController &&
-          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource IdolStaticServersInstance --region ${AWS::Region} -c startCoordinator &&
-          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource IdolStaticServersInstance --region ${AWS::Region} -c addControllers &&
-          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource IdolStaticServersInstance --region ${AWS::Region} -c startUIs
-          /opt/aws/bin/cfn-signal --exit-code $? --stack ${AWS::StackName} --resource IdolStaticServersInstance --region ${AWS::Region}
 
   IdolNiFiInstance:
     Type: AWS::EC2::Instance
@@ -2006,7 +760,7 @@ Resources:
       IamInstanceProfile: !Ref PrivateProfile
       ImageId: !FindInMap [ RegionMap, !Ref AWS::Region, IDOLNiFi ]
       InstanceType: !Ref NiFiInstanceType
-      SubnetId: !Ref PublicSubnet
+      SubnetId: !GetAtt NetworkStack.Outputs.PublicSubnet
       SecurityGroupIds:
         - !GetAtt IdolNiFiSecurityGroup.GroupId
       UserData:
@@ -2108,13 +862,16 @@ Resources:
         configImportFlow:
           commands:
             01-flowimport:
-              command: !Sub >
-                sudo -u nifi /opt/mf/nifi/import_flow.sh /opt/mf/resources/IDOL_NiFi_Flow_v3.json
-                ${IdolDIHInstance.PrivateIp}
-                ${IdolLicenseServerInstance.PrivateIp}
-                "${NiFiS3Bucket}"
-                "${NiFiS3AccessKey}"
-                "${NiFiS3SecretKey}"
+              command: !Sub
+                - >
+                  sudo -u nifi /opt/mf/nifi/import_flow.sh /opt/mf/resources/IDOL_NiFi_Flow_v3.json
+                  ${DIHPrivateIp}
+                  ${LicenseServerPrivateIp}
+                  "${NiFiS3Bucket}"
+                  "${NiFiS3AccessKey}"
+                  "${NiFiS3SecretKey}"
+                - LicenseServerPrivateIp: !GetAtt LicensingStack.Outputs.LicenseServerPrivateIP
+                  DIHPrivateIp: !GetAtt DistributedIndexStack.Outputs.DIHPrivateIP
               ignoreErrors: true
 
     CreationPolicy:
@@ -2125,7 +882,7 @@ Resources:
   IdolNiFiSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      VpcId: !Ref VPC
+      VpcId: !GetAtt NetworkStack.Outputs.VPC
       GroupDescription: Enable access to NiFi ports
       SecurityGroupIngress:
         - IpProtocol: tcp
