@@ -72,7 +72,7 @@ Parameters:
 Mappings:
   RegionMap:
     us-east-1:
-      IDOLDAH: ami-0260d0dc29629e0f5
+      IDOLDAH: ami-0765b676ebca88b38
 
 Resources:
   IdolDAHSecurityGroup:

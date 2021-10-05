@@ -83,7 +83,7 @@ Parameters:
 Mappings:
   RegionMap:
     us-east-1:
-      IDOLLicenseServer: ami-0f1d2b0f5616ab077
+      IDOLLicenseServer: ami-0b81cffe56a763034
 
 Resources:
   IdolLicenseServerRole:

@@ -76,7 +76,7 @@ Parameters:
 Mappings:
   RegionMap:
     us-east-1:
-      IDOLStaticServers: ami-055fb5b2d4cde6ac5
+      IDOLStaticServers: ami-09c36c6f538595fe0
 
 Resources:
   IdolUIsSecurityGroup:

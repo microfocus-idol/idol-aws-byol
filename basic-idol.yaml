@@ -475,7 +475,7 @@ Metadata:
 Mappings:
   RegionMap:
     us-east-1:
-      IDOLNiFi: ami-0367e88d825235d43
+      IDOLNiFi: ami-0a5b738d49e9fab2a
       GatewayProxy: ami-0ab4d1e9cf9a1215a # /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
 
 Resources:

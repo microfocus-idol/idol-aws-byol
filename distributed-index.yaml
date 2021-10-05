@@ -74,7 +74,7 @@ Parameters:
 Mappings:
   RegionMap:
     us-east-1:
-      IDOLDIH: ami-0d8a37b724b09059d
+      IDOLDIH: ami-063443f67494ab9c9
 
 Resources:
   IdolDIHSecurityGroup:

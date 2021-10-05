@@ -74,7 +74,7 @@ Parameters:
 Mappings:
   RegionMap:
     us-east-1:
-      IDOLContent: ami-0d98681590207b843
+      IDOLContent: ami-087dc09881cf8ae22
 
 Resources:
   IdolContentSecurityGroup:
